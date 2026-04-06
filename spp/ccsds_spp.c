@@ -19,14 +19,14 @@
 */
 
 #define CCSDS_PRIMARY_HEADER_LENGTH (6)
-#define CCSDS_SPP_VERSION 0 // 4.1.3.2.2 133B2 SPP CCSDS
-#define HDR_MASK_VERSION 0xe000
+#define CCSDS_SPP_VERSION 0  // 4.1.3.2.2 133B2 SPP CCSDS
+#define HDR_MASK_VERSION 0xE000
 #define HDR_MASK_TYPE    0x1000
 #define HDR_MASK_SECHDR  0x0800
 #define HDR_MASK_APID    0x07FF
-#define HDR_MASK_SEQFLAG 0xc000
-#define HDR_MASK_SEQNUM  0x3fff
-#define IDLE_APID         0b1111111111
+#define HDR_MASK_SEQFLAG 0xC000
+#define HDR_MASK_SEQNUM  0x3FFF
+#define IDLE_APID        0b1111111111
 
 // Dissector handles
 static dissector_handle_t handle_ccsds_spp_rpi;
@@ -52,8 +52,9 @@ static int ett_ccsds_spp_secondary_header;
 static expert_field ei_ccsds_length_error;
 static expert_field ei_ccsds_version_error;
 
-static gint spp_endianness = 1; // 0 = big, 1 = little
+static gint spp_endianness = 0; // 0 = big, 1 = little
 static int spp_encoding = ENC_BIG_ENDIAN;
+static gint spp_sec_header_len = 0;
 
 static const value_string table_frame_type[] = {
   {0x00, "Telemetry"},
@@ -67,11 +68,17 @@ static const enum_val_t dissect_endianes[] = {
   { NULL, NULL, 0 }
 };
 
-static int * const header_flags[] = {
+static int * const packet_id_flags[] = {
   &hf_ccsds_spp_version,
   &hf_ccsds_spp_type,
   &hf_ccsds_spp_secheader,
   &hf_ccsds_spp_apid,
+  NULL
+};
+
+static int * const packet_seq_flags[] = {
+  &hf_ccsds_spp_seqflag,
+  &hf_ccsds_spp_seqnum,
   NULL
 };
 
@@ -85,51 +92,61 @@ static const value_string ccsds_primary_header_sequence_flags[] = {
 
 static int dissect_ccsds_spp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree, void *data _U_){
   int offset = 0;
-  proto_item  *ccsds_packet;
-  proto_tree  *ccsds_tree;
-  proto_item  *primary_header;
-  proto_tree  *primary_header_tree;
-
-  col_set_str(pinfo->cinfo, COL_PROTOCOL, "CCSDS SPP");
-  col_set_str(pinfo->cinfo, COL_INFO, "SPP Packet");
-
-  int reported_length = tvb_reported_length_remaining(tvb, offset);
-  int ccsds_length = spp_endianness ? tvb_get_letohs(tvb, 4) : tvb_get_ntohs(tvb, 4);
-
   spp_encoding = (spp_endianness == 1) ? ENC_LITTLE_ENDIAN : ENC_BIG_ENDIAN;
 
-  const uint16_t header_info  = spp_endianness ? tvb_get_letohs(tvb, 0) : tvb_get_ntohs(tvb, 0);
-  const uint16_t seqflag_info = spp_endianness ? tvb_get_letohs(tvb, 2) : tvb_get_ntohs(tvb, 2);
+  proto_item  *primary_header;
+  proto_item *secondary_header;
   
-  const uint16_t seqflag = (seqflag_info & HDR_MASK_SEQFLAG) >> 14;
-  col_add_fstr(pinfo->cinfo, COL_INFO, "APID: %4d (0x%03X) - Flags: 0x%03X (%s)", (header_info&HDR_MASK_APID), (header_info&HDR_MASK_APID),
-  seqflag, try_val_to_str(seqflag, ccsds_primary_header_sequence_flags));
+  col_set_str(pinfo->cinfo, COL_PROTOCOL, "CCSDS SPP");
 
-  ccsds_packet = proto_tree_add_item(tree, proto_ccsds_spp, tvb, 0, -1, ENC_NA);
-  ccsds_tree   = proto_item_add_subtree(ccsds_packet, ett_ccsds_spp);
+  const uint16_t header_info   = (spp_endianness == 1) ? tvb_get_letohs(tvb, 0) : tvb_get_ntohs(tvb, 0);
+  const uint16_t header_seqc   = (spp_endianness == 1) ? tvb_get_letohs(tvb, 2) : tvb_get_ntohs(tvb, 2);
+  const uint16_t packet_length = (spp_endianness == 1) ? tvb_get_letohs(tvb, 4) : tvb_get_ntohs(tvb, 4);
 
-  /* build the ccsds primary header tree */
-  primary_header_tree = proto_tree_add_subtree(ccsds_tree, tvb, offset, CCSDS_PRIMARY_HEADER_LENGTH,
-                            ett_ccsds_spp_primary_header, &primary_header, "Primary CCSDS Header");
-  proto_item *pi_mask = proto_tree_add_bitmask(primary_header_tree, tvb, offset, hf_ccsds_spp_header_flags,
-                    ett_ccsds_spp_primary_header_flags, header_flags, spp_encoding);
-  
-  const uint16_t version = (header_info & HDR_MASK_VERSION) >> 13;
-  if (version != CCSDS_SPP_VERSION){
+  const uint16_t packet_version    = (header_info >> 13) & 0x7;
+  const uint16_t packet_type       = (header_info >> 12) & 0x1;
+  const uint16_t packet_sec_header = (header_info >> 11) & 0x1;
+  const uint16_t packet_apid       = header_info & HDR_MASK_APID;
+
+  const uint16_t packet_seq_flag  = (header_seqc >> 14) & 0x3;
+  const uint16_t packet_seq_count = header_seqc & HDR_MASK_SEQNUM;
+  gboolean has_sec_hdr = packet_sec_header ? TRUE : FALSE;
+
+  if (packet_apid == IDLE_APID){
+    col_add_fstr(pinfo->cinfo, COL_INFO, "IDLE Packet");
+  }else{
+    col_add_fstr(pinfo->cinfo, COL_INFO, "Type=%s APID=0x%03X Seq=%u Flags=0x%03X SecHdr=0x%03X [%s]",
+      try_val_to_str(packet_type, table_frame_type), packet_apid, packet_seq_count, packet_seq_flag, packet_sec_header, try_val_to_str(packet_seq_flag, ccsds_primary_header_sequence_flags));
+  }
+
+  proto_item *ccsds_packet = proto_tree_add_item(tree, proto_ccsds_spp, tvb, 0, -1, ENC_NA);
+  proto_tree *ccsds_tree   = proto_item_add_subtree(ccsds_packet, ett_ccsds_spp);
+
+  proto_tree *primary_tree = proto_tree_add_subtree(ccsds_tree, tvb, offset, CCSDS_PRIMARY_HEADER_LENGTH, ett_ccsds_spp_primary_header, &primary_header, "Primary Header");
+  proto_item *pi_mask = proto_tree_add_bitmask(primary_tree, tvb, offset, hf_ccsds_spp_header_flags, ett_ccsds_spp_primary_header_flags, packet_id_flags, spp_endianness);
+
+  if (packet_version != CCSDS_SPP_VERSION){
     expert_add_info(pinfo, pi_mask, &ei_ccsds_version_error);
   }
   offset += 2;
 
-  proto_tree_add_item(primary_header_tree, hf_ccsds_spp_seqflag, tvb, offset, 2, spp_encoding);
-  proto_tree_add_item(primary_header_tree, hf_ccsds_spp_seqnum, tvb, offset, 2, spp_encoding);
+  proto_tree_add_bitmask(primary_tree, tvb, offset, hf_ccsds_spp_seqnum, ett_ccsds_spp_primary_header, packet_seq_flags, spp_endianness);
   offset += 2;
 
-  proto_item *pt_length = proto_tree_add_item(primary_header_tree, hf_ccsds_spp_length, tvb, offset, 2, spp_encoding);
-  if (ccsds_length > reported_length){
+  proto_item *pt_length = proto_tree_add_item(primary_tree, hf_ccsds_spp_length, tvb, offset, 2, spp_encoding);
+  if (packet_length > tvb_reported_length(tvb)){
     expert_add_info(pinfo, pt_length, &ei_ccsds_length_error);
   }
   offset += 2;
   proto_item_set_end(primary_header, tvb, offset);
+
+  /* Build the CCSDS sencondary header tree */
+  // TODO: Do a beeter with this
+  if (has_sec_hdr && spp_sec_header_len > 0){
+    proto_tree_add_subtree(ccsds_tree, tvb, offset, spp_sec_header_len, ett_ccsds_spp_secondary_header, &secondary_header, "Secondary Header");
+    proto_item_set_end(secondary_header, tvb, offset);
+    offset += spp_sec_header_len;
+  }
 
   /* Give the data dissector any bytes past the CCSDS packet length */
   call_data_dissector(tvb_new_subset_remaining(tvb, offset), pinfo, tree);
@@ -139,11 +156,11 @@ static int dissect_ccsds_spp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
 void proto_register_ccsds_spp(void){
   static hf_register_info hf[] = {
     {&hf_ccsds_spp_header_flags, {"Header Flags", "ccsds-spp.header_flags", FT_UINT16, BASE_HEX, NULL, 0x0, NULL, HFILL}},
-    {&hf_ccsds_spp_version, {"Version", "ccsds-spp.version", FT_UINT16, BASE_DEC, NULL, HDR_MASK_VERSION, NULL, HFILL}},
-    {&hf_ccsds_spp_type, {"Type", "ccsds-spp.type", FT_UINT16, BASE_DEC, VALS(table_frame_type), HDR_MASK_TYPE, NULL, HFILL}},
+    {&hf_ccsds_spp_version, {"Version", "ccsds-spp.version", FT_UINT16, BASE_DEC_HEX, NULL, HDR_MASK_VERSION, NULL, HFILL}},
+    {&hf_ccsds_spp_type, {"Type", "ccsds-spp.type", FT_UINT16, BASE_DEC_HEX, VALS(table_frame_type), HDR_MASK_TYPE, NULL, HFILL}},
     {&hf_ccsds_spp_secheader, {"Secondary Header Flag", "ccsds-spp.sec_flag", FT_BOOLEAN, 16, NULL, HDR_MASK_SECHDR, "Secondary Header Present", HFILL}},
-    {&hf_ccsds_spp_apid, {"APID", "ccsds-spp.apid", FT_UINT16, BASE_DEC, NULL, HDR_MASK_APID, NULL, HFILL}},
-    {&hf_ccsds_spp_seqflag, {"Sequence Flags", "ccsds-spp.seqflag", FT_UINT16, BASE_DEC, VALS(ccsds_primary_header_sequence_flags), HDR_MASK_SEQFLAG, NULL, HFILL}},
+    {&hf_ccsds_spp_apid, {"APID", "ccsds-spp.apid", FT_UINT16, BASE_DEC_HEX, NULL, HDR_MASK_APID, NULL, HFILL}},
+    {&hf_ccsds_spp_seqflag, {"Sequence Flags", "ccsds-spp.seqflag", FT_UINT16, BASE_DEC_HEX, VALS(ccsds_primary_header_sequence_flags), HDR_MASK_SEQFLAG, NULL, HFILL}},
     {&hf_ccsds_spp_seqnum, {"Sequence Number", "ccsds-spp.seqnum", FT_UINT16, BASE_DEC, NULL, HDR_MASK_SEQNUM, NULL, HFILL}},
     {&hf_ccsds_spp_length, {"Packet Length", "ccsds-spp.length", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL}},
   };
@@ -173,10 +190,11 @@ void proto_register_ccsds_spp(void){
   handle_ccsds_spp_rpi = register_dissector("ccsds_spp", dissect_ccsds_spp, proto_ccsds_spp);
   /* Register preferences module */
   module_t *ccsds_module = prefs_register_protocol(proto_ccsds_spp, NULL);
-  prefs_register_enum_preference(ccsds_module, "global_pref_checkword",
+  prefs_register_enum_preference(ccsds_module, "global_pref_spp_endianes",
         "How to handle the CCSDS endianes",
         "Specify how the dissector should handle the CCSDS endianes",
         &spp_endianness, dissect_endianes, false);
+  prefs_register_int_preference(ccsds_module, "global_pref_spp_sec_header_len", "Secondary Header Length", "Secondary Header Length (Bytes)", &spp_sec_header_len);
 }
 
 void proto_reg_handoff_ccsds_spp(void){
