@@ -18,9 +18,9 @@ jobs:
           - { os: ubuntu,  shell: bash  }
           - { os: macos,   shell: bash  }
         wireshark:
+          - 4.2.2
           - 4.4.13
           - 4.6.3
-          - 4.7.0
 
     runs-on: ${{ matrix.sys.os }}-latest
     permissions:
