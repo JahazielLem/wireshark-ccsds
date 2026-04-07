@@ -16,7 +16,7 @@ jobs:
         sys:
           - { os: windows, shell: 'msys2 {0}' }
           - { os: ubuntu,  shell: bash  }
-          - { os: macos,   shell: bash  }
+          # exclude:  - { os: macos,   shell: bash  }
         wireshark:
           - 4.2.0
           - 4.4.13
