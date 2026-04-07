@@ -42,6 +42,8 @@ static int hf_ccsds_spp_apid;
 static int hf_ccsds_spp_seqflag;
 static int hf_ccsds_spp_seqnum;
 static int hf_ccsds_spp_length;
+static int hf_ccsds_spp_secheader_data;
+static int hf_ccsds_spp_secheader_length;
 
 /* Initialize the subtree pointers */
 static int ett_ccsds_spp;
@@ -54,7 +56,7 @@ static expert_field ei_ccsds_version_error;
 
 static gint spp_endianness = 0; // 0 = big, 1 = little
 static int spp_encoding = ENC_BIG_ENDIAN;
-static gint spp_sec_header_len = 0;
+static gint spp_sec_header_len = 6;
 
 static const value_string table_frame_type[] = {
   {0x00, "Telemetry"},
@@ -86,7 +88,7 @@ static const value_string ccsds_primary_header_sequence_flags[] = {
   {  0, "Continuation segment" },
   {  1, "First segment" },
   {  2, "Last segment" },
-  {  3, "Unsegmented data" },
+  {  3, "Unsegmented" },
   {  0, NULL }
 };
 
@@ -95,7 +97,6 @@ static int dissect_ccsds_spp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
   spp_encoding = (spp_endianness == 1) ? ENC_LITTLE_ENDIAN : ENC_BIG_ENDIAN;
 
   proto_item  *primary_header;
-  proto_item *secondary_header;
   
   col_set_str(pinfo->cinfo, COL_PROTOCOL, "CCSDS SPP");
 
@@ -143,8 +144,13 @@ static int dissect_ccsds_spp(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree
   /* Build the CCSDS sencondary header tree */
   // TODO: Do a beeter with this
   if (has_sec_hdr && spp_sec_header_len > 0){
-    proto_tree_add_subtree(ccsds_tree, tvb, offset, spp_sec_header_len, ett_ccsds_spp_secondary_header, &secondary_header, "Secondary Header");
+    proto_tree *secondary_header = proto_tree_add_subtree(ccsds_tree, tvb, offset, spp_sec_header_len, ett_ccsds_spp_secondary_header, &secondary_header, "Secondary Header");
+    proto_item *pi_sechdr = proto_tree_add_item(secondary_header, hf_ccsds_spp_secheader_data, tvb, offset, spp_sec_header_len, spp_encoding);
+    proto_item *pi_len = proto_tree_add_uint(secondary_header, hf_ccsds_spp_secheader_length, tvb, offset, 0, spp_sec_header_len);
+    
+    PROTO_ITEM_SET_GENERATED(pi_len);
     proto_item_set_end(secondary_header, tvb, offset);
+    proto_item_set_len(pi_sechdr, spp_sec_header_len);
     offset += spp_sec_header_len;
   }
 
@@ -163,6 +169,9 @@ void proto_register_ccsds_spp(void){
     {&hf_ccsds_spp_seqflag, {"Sequence Flags", "ccsds-spp.seqflag", FT_UINT16, BASE_DEC_HEX, VALS(ccsds_primary_header_sequence_flags), HDR_MASK_SEQFLAG, NULL, HFILL}},
     {&hf_ccsds_spp_seqnum, {"Sequence Number", "ccsds-spp.seqnum", FT_UINT16, BASE_DEC, NULL, HDR_MASK_SEQNUM, NULL, HFILL}},
     {&hf_ccsds_spp_length, {"Packet Length", "ccsds-spp.length", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL}},
+    {&hf_ccsds_spp_secheader_data, {"Secondary Header", "ccsds-spp.secheader", FT_BYTES, SEP_SPACE, NULL, 0x0, NULL, HFILL}},
+    {&hf_ccsds_spp_secheader_length, {"Secondary Header Length", "ccsds-spp.secheader.length", FT_UINT16, BASE_DEC, NULL, 0x0, NULL, HFILL}},
+    
   };
 
   static int *ett[] = {
