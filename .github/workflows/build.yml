@@ -57,6 +57,7 @@ jobs:
           SETUP_OPTIONS="${SETUP_OPTIONS} --install-required"
         fi
         wireshark/tools/macos-setup-brew.sh ${SETUP_OPTIONS}
+        brew install lua@5.4
       env:
         HOMEBREW_NO_AUTO_UPDATE: 1
 
