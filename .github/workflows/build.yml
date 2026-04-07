@@ -74,7 +74,7 @@ jobs:
       run: wireshark/tools/msys2-setup.sh --install-all --noconfirm
 
     - name: Configure
-      run: cmake -B build -S wireshark -G Ninja -DCUSTOM_PLUGIN_SRC_DIR=plugins/epan/catsniffer -DCMAKE_INSTALL_PREFIX=/
+      run: cmake -B build -S wireshark -G Ninja -DCUSTOM_PLUGIN_SRC_DIR=plugins/epan/grccsds -DCMAKE_INSTALL_PREFIX=/
 
     - name: Build
       run: |
