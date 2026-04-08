@@ -19,8 +19,8 @@ jobs:
           # exclude:  - { os: macos,   shell: bash  }
         wireshark:
           - 4.2.0
-          - 4.4.13
-          - 4.6.3
+          - 4.4.0
+          - 4.6.0
 
     runs-on: ${{ matrix.sys.os }}-latest
     permissions:
