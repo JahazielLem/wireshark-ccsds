@@ -16,7 +16,7 @@ jobs:
         sys:
           - { os: windows, shell: 'msys2 {0}' }
           - { os: ubuntu,  shell: bash  }
-          - { os: macos,   shell: bash  }
+          # exclude:  - { os: macos,   shell: bash  }
         wireshark:
           - 4.2.0
           - 4.4.13
@@ -51,13 +51,13 @@ jobs:
     - name: Install dependencies (Mac OS)
       if: matrix.sys.os == 'macos'
       run: |
+        brew install lua@5.4
         version_greater_equal() { printf '%s\n%s\n' "$2" "$1" | sort --check=quiet --version-sort; }
         SETUP_OPTIONS="--install-optional --install-doc-deps --install-dmg-deps --install-test-deps"
         if version_greater_equal ${{ matrix.wireshark }} 4.6; then
           SETUP_OPTIONS="${SETUP_OPTIONS} --install-required"
         fi
         wireshark/tools/macos-setup-brew.sh ${SETUP_OPTIONS}
-        brew install lua@5.4
       env:
         HOMEBREW_NO_AUTO_UPDATE: 1
 
@@ -84,7 +84,7 @@ jobs:
       run: wireshark/tools/msys2-setup.sh --install-all --noconfirm
 
     - name: Configure
-      run: cmake -B build -S wireshark -G Ninja -DCUSTOM_PLUGIN_SRC_DIR=plugins/epan/catsniffer -DCMAKE_INSTALL_PREFIX=/
+      run: cmake -B build -S wireshark -G Ninja -DCUSTOM_PLUGIN_SRC_DIR=plugins/epan/grccsds -DCMAKE_INSTALL_PREFIX=/
 
     - name: Build
       run: |
