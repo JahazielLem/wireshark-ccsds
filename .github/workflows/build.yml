@@ -67,7 +67,17 @@ jobs:
       with:
         msystem: UCRT64
         update: true
-        install: base-devel
+        install: >- 
+          base-devel
+          msys2-keyring
+          pacman
+    - name: Fix MSYS2 PGP Keys (Windows)
+      if: matrix.sys.os == 'windows'
+      run: |
+        pacman-key --init
+        pacman-key --populate msys2
+        pacman -Sy --noconfirm msys2-keyring
+      shell: msys2 {0}
 
     - name: Install dependencies (Windows)
       if: matrix.sys.os == 'windows'
