@@ -28,6 +28,8 @@
 #define HDR_MASK_SEQNUM  0x3FFF
 #define IDLE_APID        0b1111111111
 
+#define CCSDS_SPP_UDP_PORT 5556
+
 // Dissector handles
 static dissector_handle_t handle_ccsds_spp_rpi;
 // Protocol handle
@@ -208,6 +210,8 @@ void proto_register_ccsds_spp(void){
 
 void proto_reg_handoff_ccsds_spp(void){
   dissector_add_uint("wtap_encap", WTAP_ENCAP_USER1, handle_ccsds_spp_rpi);
+  dissector_add_uint("udp.port", CCSDS_SPP_UDP_PORT, handle_ccsds_spp_rpi);
+
 }
 
 /*
